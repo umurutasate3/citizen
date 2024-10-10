@@ -25,6 +25,22 @@ db.connect((err) => {
   console.log('Connected to MySQL database.');
 });
 
+// Function to convert 12-hour time format (e.g., "10:00 AM") to 24-hour format (e.g., "10:00:00")
+const convertTo24Hour = (time12h) => {
+  const [time, modifier] = time12h.split(' ');
+  let [hours, minutes] = time.split(':');
+  
+  if (hours === '12') {
+    hours = '00';
+  }
+
+  if (modifier === 'PM') {
+    hours = parseInt(hours, 10) + 12;
+  }
+
+  return `${hours}:${minutes}:00`;
+};
+
 // Define the USSD Endpoint
 app.get('/', (req, res) => {
   res.send('hello from api!');
@@ -85,12 +101,15 @@ app.post('/ussd', (req, res) => {
             : 'CON Injiza impamvu ya gahunda:';
           break;
         case 6:
+          // Convert the time to 24-hour format
+          const appointmentTime = convertTo24Hour(userResponse[4]);
+
           // Save appointment details to MySQL
           const appointmentData = {
             phone_number: phoneNumber,
             full_name: userResponse[2],
             date: userResponse[3],
-            time: userResponse[4],
+            time: appointmentTime,
             reason: userResponse[5],
           };
 
