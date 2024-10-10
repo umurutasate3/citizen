@@ -1,40 +1,33 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const mongoose = require('mongoose');
+const mysql = require('mysql2');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(bodyParser.urlencoded({ extended: false }));
-const database_url = 'mongodb+srv://claudeumurutasate4:3SK3pkZKD9RKKqyQ@cluster0.l1lvq.mongodb.net/appointment'; 
-mongoose.connect(database_url, { useNewUrlParser: true, useUnifiedTopology: true });
-
-mongoose.connection.on('connected', () => {
-  console.log('Mongoose connected to MongoDB.');
-});
-mongoose.connection.on('error', (err) => {
-  console.error('Mongoose connection error:', err);
-});
-mongoose.connection.on('disconnected', () => {
-  console.log('Mongoose disconnected.');
-});
-
-const appointmentSchema = new mongoose.Schema({
-  phone_number: String,
-  full_name: String,
-  date: String,
-  time: String,
-  reason: String,
-});
-
-const Appointment = mongoose.model('Appointment', appointmentSchema);
-
 app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+
+// Create MySQL connection
+const db = mysql.createConnection({
+  host: 'bwbusqyou6y36nq07nen-mysql.services.clever-cloud.com', // Your MySQL host
+  user: 'ui5erqq1nmgauixl', // Your MySQL username
+  password: 'am2w1jaNS2dIJMPwRZ0h', // Your MySQL password
+  database: 'bwbusqyou6y36nq07nen' // Your MySQL database
+});
+
+// Connect to MySQL
+db.connect((err) => {
+  if (err) {
+    console.error('Error connecting to MySQL:', err);
+    return;
+  }
+  console.log('Connected to MySQL database.');
+});
 
 // Define the USSD Endpoint
 app.get('/', (req, res) => {
-  res.send("hello from api!");
+  res.send('hello from api!');
 });
 
 app.post('/ussd', (req, res) => {
@@ -92,7 +85,7 @@ app.post('/ussd', (req, res) => {
             : 'CON Injiza impamvu ya gahunda:';
           break;
         case 6:
-          // Save appointment details to MongoDB
+          // Save appointment details to MySQL
           const appointmentData = {
             phone_number: phoneNumber,
             full_name: userResponse[2],
@@ -101,23 +94,23 @@ app.post('/ussd', (req, res) => {
             reason: userResponse[5],
           };
 
-          // Save the data in the MongoDB database
-          const newAppointment = new Appointment(appointmentData);
-          newAppointment
-            .save()
-            .then(() => {
-              response = language === 'English'
-                ? `END Thank you ${userResponse[2]}! Your appointment is booked for ${userResponse[3]} at ${userResponse[4]}.`
-                : `END Murakoze ${userResponse[2]}! Gahunda yawe yemejwe kuri ${userResponse[3]} saa ${userResponse[4]}.`;
-              res.send(response);
-            })
-            .catch((err) => {
+          // Insert the appointment data into MySQL
+          const query = 'INSERT INTO appointments (phone_number, full_name, date, time, reason) VALUES (?, ?, ?, ?, ?)';
+          db.query(query, Object.values(appointmentData), (err, result) => {
+            if (err) {
               console.error(err);
               response = language === 'English'
                 ? 'END Sorry, there was an error booking your appointment. Please try again later.'
                 : 'END Twagize ikibazo mu kwemeza gahunda yawe. Mugerageze ubutaha.';
               res.send(response);
-            });
+              return;
+            }
+
+            response = language === 'English'
+              ? `END Thank you ${userResponse[2]}! Your appointment is booked for ${userResponse[3]} at ${userResponse[4]}.`
+              : `END Murakoze ${userResponse[2]}! Gahunda yawe yemejwe kuri ${userResponse[3]} saa ${userResponse[4]}.`;
+            res.send(response);
+          });
           return;
         default:
           response = language === 'English' ? 'END Invalid input. Please try again.' : 'END Gusubiza ntabwo bikwiye. Mugerageze nanone.';
