@@ -1,7 +1,8 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const mysql = require('mysql2');
-const africastalking = require('africastalking');
+const session = require('express-session'); // Import express-session
+const sendSMS = require('./sms/sendSMS')
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -9,14 +10,13 @@ const PORT = process.env.PORT || 3000;
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
-// Africa's Talking Credentials
-const username = 'sandbox'; // replace with your Africa's Talking username
-const apiKey = 'atsk_d6ba7ffae0d99ba30acc28d795369eac314db7de2e359e890f7e5315cd339b556a19ef76'; // replace with your Africa's Talking API key
-
-const africasTalking = africastalking({ username, apiKey });
-
-// Access the SMS service
-const sms = africasTalking.SMS;
+// Set up session management
+app.use(session({
+  secret: 'your-secret-key', // Change this to a more secure secret in production
+  resave: false,
+  saveUninitialized: true,
+  cookie: { secure: false } // Set secure to true if using HTTPS
+}));
 
 // Create MySQL connection
 const db = mysql.createConnection({
@@ -35,36 +35,14 @@ db.connect((err) => {
   console.log('Connected to MySQL database.');
 });
 
-// Function to convert 12-hour time format to 24-hour format
-const convertTo24Hour = (time12h) => {
-  const [time, modifier] = time12h.split(' ');
-  let [hours, minutes] = time.split(':');
-  
-  if (hours === '12') {
-    hours = '00';
-  }
-
-  if (modifier === 'PM') {
-    hours = parseInt(hours, 10) + 12;
-  }
-
-  return `${hours}:${minutes}:00`;
-};
 
 // Define the USSD Endpoint
-app.get('/', (req, res) => {
-  res.send('hello from api!');
-});
-
 app.post('/ussd', (req, res) => {
   const { sessionId, serviceCode, phoneNumber, text } = req.body;
-
-  // Split the input text into a list
   const userResponse = text.split('*');
 
-  // Determine USSD flow based on user response
   let response = '';
-  let language = '';  // to store the language selection
+  let language = '';
 
   if (text === '') {
     // Language selection screen
@@ -75,7 +53,6 @@ app.post('/ussd', (req, res) => {
     // Set the language and ask the user what to do next
     language = userResponse[0] === '1' ? 'English' : 'Kinyarwanda';
 
-    // Continue with main menu in the selected language
     if (userResponse.length === 1) {
       if (language === 'English') {
         response = 'CON Welcome to Local Government Appointment Booking\n';
@@ -93,68 +70,81 @@ app.post('/ussd', (req, res) => {
           response = language === 'English' ? 'CON Enter your full name:' : 'CON Injiza amazina yawe yose:';
           break;
         case 3:
-          // Ask for preferred date of appointment
-          response = language === 'English'
-            ? `CON Hi ${userResponse[2]}, please enter your preferred date (e.g., 2024-10-15):`
-            : `CON Muraho ${userResponse[2]}, injiza itariki wifuza (nko 2024-10-15):`;
+          // Ask for citizen's village
+          req.session.fullName = userResponse[2]; // Save the user's full name
+          response = language === 'English' ? 'CON Enter your village:' : 'CON Injiza umudugudu wawe:';
           break;
         case 4:
-          // Ask for preferred time
-          response = language === 'English'
-            ? 'CON Enter preferred time (e.g., 10:00 AM):'
-            : 'CON Injiza isaha wifuza (nko 10:00 AM):';
+          // Ask for the reason for the appointment
+          req.session.village = userResponse[3]; // Save the user's village
+          response = language === 'English' ? 'CON Enter the reason for your appointment:' : 'CON Injiza impamvu y\'igikorwa cyawe:';
           break;
         case 5:
-          // Ask for reason for appointment
-          response = language === 'English'
-            ? 'CON Enter reason for the appointment:'
-            : 'CON Injiza impamvu ya gahunda:';
-          break;
-        case 6:
-          // Convert the time to 24-hour format
-          const appointmentTime = convertTo24Hour(userResponse[4]);
-
-          // Save appointment details to MySQL
-          const appointmentData = {
-            phone_number: phoneNumber,
-            full_name: userResponse[2],
-            date: userResponse[3],
-            time: appointmentTime,
-            reason: userResponse[5],
-          };
-
-          // Insert the appointment data into MySQL
-          const query = 'INSERT INTO appointments (phone_number, full_name, date, time, reason) VALUES (?, ?, ?, ?, ?)';
-          db.query(query, Object.values(appointmentData), (err, result) => {
+          // Fetch available slots from the database
+          req.session.reason = userResponse[4]; // Save the user's reason
+          db.query('SELECT * FROM slots WHERE date >= CURDATE() AND availability = 1', (err, rows) => {
             if (err) {
               console.error(err);
-              response = language === 'English'
-                ? 'END Sorry, there was an error booking your appointment. Please try again later.'
-                : 'END Twagize ikibazo mu kwemeza gahunda yawe. Mugerageze ubutaha.';
-              res.send(response);
-              return;
+              response = language === 'English' ? 'END Error fetching slots.' : 'END Ikibazo mu kubona amasaha.';
+              return res.send(response);
             }
 
-            // Send SMS notification
-            const smsMessage = language === 'English'
-              ? `Thank you ${userResponse[2]}! Your appointment is booked for ${userResponse[3]} at ${userResponse[4]}.`
-              : `Murakoze ${userResponse[2]}! Gahunda yawe yemejwe kuri ${userResponse[3]} saa ${userResponse[4]}.`;
+            if (rows.length === 0) {
+              response = language === 'English' ? 'END No available slots at the moment.' : 'END Nta masaha aboneka muri iki gihe.';
+              return res.send(response);
+            }
 
-            sms.send({
-              to: phoneNumber,
-              message: smsMessage,
-            })
-            .then((res) => {
-              console.log('SMS sent successfully:', res);
-            })
-            .catch((err) => {
-              console.error('Failed to send SMS:', err);
+            response = language === 'English' ? 'CON Available slots:\n' : 'CON Amasaha aboneka:\n';
+            rows.forEach((slot, index) => {
+              response += `${index + 1}. Date: ${slot.date.toISOString().split('T')[0]}, Time: ${slot.startTime} - ${slot.endTime}\n`;
             });
+            response += language === 'English' ? 'Please select a slot by entering the number:\n' : 'Injiza umubare w\'amasaha ushyira mu bikorwa:\n';
+
+            // Store the slots for future reference
+            req.session.slots = rows; // Save the available slots in the session
+            return res.send(response);
+          });
+          return;
+        case 6:
+          // Selecting a slot
+          const selectedSlotIndex = parseInt(userResponse[5]) - 1; // Convert to index
+
+          if (isNaN(selectedSlotIndex) || selectedSlotIndex < 0 || selectedSlotIndex >= req.session.slots.length) {
+            response = language === 'English' ? 'END Invalid slot selection. Please try again.' : 'END Guhitamo ntabwo ari byo. Mugerageze nanone.';
+            return res.send(response);
+          }
+
+          const selectedSlot = req.session.slots[selectedSlotIndex]; // Get selected slot
+
+          // Insert the appointment data into MySQL
+          const appointmentData = {
+            username: req.session.fullName,
+            village: req.session.village, // Use village from session
+            phoneNumber,
+            reason: req.session.reason, // Use reason from session
+            slotId: selectedSlot.id
+          };
+
+          const query = 'INSERT INTO appointments (username, village, phoneNumber, reason, slotId) VALUES (?, ?, ?, ?, ?)';
+          db.query(query, Object.values(appointmentData), (err) => {
+            if (err) {
+              console.error(err);
+              response = language === 'English' ? 'END Sorry, there was an error booking your appointment. Please try again later.' : 'END Twagize ikibazo mu kwemeza gahunda yawe. Mugerageze ubutaha.';
+              return res.send(response);
+            }
+
+            // Send confirmation SMS
+            const message = language === 'English'
+              ? `Thank you ${req.session.fullName}! Your appointment is booked. Reason: ${req.session.reason}`
+              : `Murakoze ${req.session.fullName}! Gahunda yawe yemejwe. Impamvu: ${req.session.reason}`;
+
+            sendSMS(phoneNumber,message)
 
             response = language === 'English'
-              ? `END Thank you ${userResponse[2]}! Your appointment is booked for ${userResponse[3]} at ${userResponse[4]}.`
-              : `END Murakoze ${userResponse[2]}! Gahunda yawe yemejwe kuri ${userResponse[3]} saa ${userResponse[4]}.`;
-            res.send(response);
+              ? `END Thank you ${req.session.fullName}! Your appointment is booked. Reason: ${req.session.reason}`
+              : `END Murakoze ${req.session.fullName}! Gahunda yawe yemejwe. Impamvu: ${req.session.reason}`;
+
+            return res.send(response);
           });
           return;
         default:
@@ -173,6 +163,8 @@ app.post('/ussd', (req, res) => {
   // Send response back to the user
   res.send(response);
 });
+
+
 
 // Start the server
 app.listen(PORT, () => {
