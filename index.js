@@ -3,7 +3,6 @@ const bodyParser = require('body-parser');
 const mysql = require('mysql2');
 const session = require('express-session');
 const MySQLStore = require('express-mysql-session')(session);
-const sendSMS = require('./sms/sendSMS'); // Assuming sendSMS is a separate module for sending SMS
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -144,33 +143,13 @@ app.post('/ussd', (req, res) => {
               return res.send(response);
             }
 
-            // Send confirmation SMS
-            const message = language === 'English'
-              ? `Thank you ${req.session.fullName}! Your appointment is booked. Reason: ${req.session.reason}`
-              : `Murakoze ${req.session.fullName}! Gahunda yawe yemejwe. Impamvu: ${req.session.reason}`;
-
-            sendSMS(phoneNumber, message)
-              .then(result => {
-                console.log('SMS sent:', result);
-                
-                // Confirm response to user
-                response = language === 'English'
-                  ? `END Thank you ${req.session.fullName}! Your appointment is booked. Reason: ${req.session.reason}`
-                  : `END Murakoze ${req.session.fullName}! Gahunda yawe yemejwe. Impamvu: ${req.session.reason}`;
-                console.log('Response sent to user:', response); // Log the response
-                return res.send(response);
-              })
-              .catch(err => {
-                console.error('SMS sending error:', err);
-                
-                // Send response even if SMS sending fails
-                const fallbackResponse = language === 'English'
-                  ? `END Thank you ${req.session.fullName}, but we encountered an issue sending your confirmation SMS. Your appointment is still booked.`
-                  : `END Murakoze ${req.session.fullName}, ariko twagize ikibazo mu kohereza SMS yemeza. Gahunda yawe yemejwe.`;
-                
-                console.log('Fallback response sent to user:', fallbackResponse); // Log the fallback response
-                return res.send(fallbackResponse);
-              });
+            // Confirm response to user
+            response = language === 'English'
+              ? `END Thank you ${req.session.fullName}! Your appointment is booked. Reason: ${req.session.reason}`
+              : `END Murakoze ${req.session.fullName}! Gahunda yawe yemejwe. Impamvu: ${req.session.reason}`;
+            
+            console.log('Response sent to user:', response); // Log the response
+            return res.send(response);
           });
           return;
         default:
