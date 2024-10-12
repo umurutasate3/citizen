@@ -13,12 +13,4 @@ module.exports = function smsServer() {
 
     // TODO: Delivery reports route
 
-    const port = process.env.PORT;
-
-    app.listen(port, () => {
-        console.log(`App running on port: ${port}`);
-
-        // TODO: call sendSMS to send message after server starts
-
-    });
 };
