@@ -1,21 +1,35 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const mysql = require('mysql2');
-const session = require('express-session'); // Import express-session
+const session = require('express-session');
+const MySQLStore = require('express-mysql-session')(session);
 const sendSMS = require('./sms/sendSMS')
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
-// Set up session management
+// Create a MySQL session store
+const sessionStore = new MySQLStore({
+  host: 'bwbusqyou6y36nq07nen-mysql.services.clever-cloud.com', // Your MySQL host
+  port: 3306,           // MySQL server port
+  user: 'ui5erqq1nmgauixl', // Your MySQL username
+  password: 'am2w1jaNS2dIJMPwRZ0h', // Your MySQL password
+  database: 'bwbusqyou6y36nq07nen' // Your MySQL database
+});
+
+// Initialize the session middleware with MySQLStore
 app.use(session({
-  secret: 'your-secret-key', // Change this to a more secure secret in production
-  resave: false,
-  saveUninitialized: true,
-  cookie: { secure: false } // Set secure to true if using HTTPS
+  secret: 'yourSecret',   // Secret to sign session cookies
+  resave: false,          // Prevents unnecessary session saving
+  saveUninitialized: false, // Don't save unmodified sessions
+  store: sessionStore,    // Use the MySQL store for session storage
+  cookie: { 
+      maxAge: 60000 * 60  // Set cookie expiration (e.g., 1 hour)
+  }
 }));
 
 // Create MySQL connection
