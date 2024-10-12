@@ -1,130 +1,180 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const mysql = require('mysql2/promise'); // Use promise-based MySQL for async/await
+const mysql = require('mysql2');
+const africastalking = require('africastalking');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
+// Africa's Talking Credentials
+const username = 'sandbox'; // replace with your Africa's Talking username
+const apiKey = 'atsk_d6ba7ffae0d99ba30acc28d795369eac314db7de2e359e890f7e5315cd339b556a19ef76'; // replace with your Africa's Talking API key
+
+const africasTalking = africastalking({ username, apiKey });
+
+// Access the SMS service
+const sms = africasTalking.SMS;
+
 // Create MySQL connection
-const dbConnection = mysql.createPool({
-    host: 'bwbusqyou6y36nq07nen-mysql.services.clever-cloud.com',
-    user: 'ui5erqq1nmgauixl',
-    password: 'am2w1jaNS2dIJMPwRZ0h',
-    database: 'bwbusqyou6y36nq07nen'
+const db = mysql.createConnection({
+  host: 'bwbusqyou6y36nq07nen-mysql.services.clever-cloud.com', // Your MySQL host
+  user: 'ui5erqq1nmgauixl', // Your MySQL username
+  password: 'am2w1jaNS2dIJMPwRZ0h', // Your MySQL password
+  database: 'bwbusqyou6y36nq07nen' // Your MySQL database
 });
 
-app.post('/ussd', async (req, res) => {
-  const { sessionId, serviceCode, phoneNumber, text } = req.body;
-  const userResponse = text.split('*');
-  let response = '';
-  let language = '';
-  let slots = [];
-  let selectedSlotIndex = -1; // Initialize selectedSlotIndex
+// Connect to MySQL
+db.connect((err) => {
+  if (err) {
+    console.error('Error connecting to MySQL:', err);
+    return;
+  }
+  console.log('Connected to MySQL database.');
+});
 
-  // Check if the user input is empty
-  if (text === '') {
-      response = 'CON Select language / Hitamo ururimi:\n1. English\n2. Kinyarwanda';
-  } else if (userResponse[0] === '1' || userResponse[0] === '2') {
-      // Determine the language
-      language = userResponse[0] === '1' ? 'English' : 'Kinyarwanda';
-
-      // Main menu
-      if (userResponse.length === 1) {
-          response = language === 'English'
-              ? 'CON Welcome to Local Government Appointment Booking\n1. Book an appointment\n2. Exit'
-              : 'CON Murakaza neza muri Serivisi y\'Ibyo Gahunda\n1. Guhitamo gahunda\n2. Gusohoka';
-      } else if (userResponse[1] === '1') {
-          // Fetch available slots
-          try {
-              const [rows] = await dbConnection.query(`
-                  SELECT id, date, startTime, endTime 
-                  FROM slots 
-                  WHERE availability = true AND date >= CURDATE()
-              `);
-
-              console.log('Fetched slots:', rows);
-
-              if (rows.length === 0) {
-                  response = language === 'English'
-                      ? 'END No available slots for booking. Please try again later.'
-                      : 'END Nta masaha aboneka yo guhitamo. Mugerageze ubutaha.';
-              } else {
-                  response = language === 'English' 
-                      ? 'CON Available slots:\n' 
-                      : 'CON Amasaha aboneka:\n';
-
-                  // List available slots and store them
-                  slots = rows; // Store the slots
-
-                  rows.forEach((slot, index) => {
-                      response += `${index + 1}. Date: ${slot.date.toISOString().split('T')[0]}, Time: ${slot.startTime} - ${slot.endTime}\n`;
-                  });
-
-                  response += language === 'English' 
-                      ? 'Please select a slot by entering the number:\n' 
-                      : 'Injiza umubare w\'amasaha ushyira mu bikorwa:\n';
-              }
-          } catch (error) {
-              console.error('Error fetching slots:', error);
-              response = language === 'English'
-                  ? 'END Error fetching available slots. Please try again later.'
-                  : 'END Twagize ikibazo mu kubona amasaha aboneka. Mugerageze ubutaha.';
-          }
-      } else if (userResponse.length === 2) {
-          // Handle slot selection
-          selectedSlotIndex = parseInt(userResponse[1]) - 1; // Get selected slot index
-
-          // Check if the selected slot is valid
-          if (selectedSlotIndex < 0 || selectedSlotIndex >= slots.length) {
-              response = language === 'English'
-                  ? 'END Invalid slot selection. Please try again.'
-                  : 'END Guhitamo ntabwo bikwiye. Mugerageze nanone.';
-          } else {
-              // Proceed to ask for user details
-              response = language === 'English' 
-                  ? `CON You've selected ${slots[selectedSlotIndex].date.toISOString().split('T')[0]} from ${slots[selectedSlotIndex].startTime} to ${slots[selectedSlotIndex].endTime}. Enter your full name:` 
-                  : `CON Wahisemo ${slots[selectedSlotIndex].date.toISOString().split('T')[0]} kuva ${slots[selectedSlotIndex].startTime} kugeza ${slots[selectedSlotIndex].endTime}. Injiza amazina yawe yose:`;
-          }
-      } else if (userResponse.length === 3) {
-          // Capture user's full name
-          const fullName = userResponse[2];
-
-          response = language === 'English' 
-              ? `CON Thank you, ${fullName}. Please enter your reason for the appointment:` 
-              : `CON Murakoze, ${fullName}. Injiza impamvu ya gahunda:`;
-      } else if (userResponse.length === 4) {
-          // Capture reason and proceed with appointment creation
-          const reason = userResponse[3];
-          const selectedSlot = slots[selectedSlotIndex];
-
-          // Insert appointment into the database
-          try {
-              await dbConnection.query(`
-                  INSERT INTO appointments (appointmentDate, status, username, village, phoneNumber, reason) 
-                  VALUES (?, 'pending', ?, ?, ?, ?)
-              `, [selectedSlot.date.toISOString().split('T')[0], fullName, 'Unknown Village', phoneNumber, reason]); // Replace 'Unknown Village' with actual data if available
-
-              response = language === 'English'
-                  ? `END Appointment booked successfully for ${fullName} on ${selectedSlot.date.toISOString().split('T')[0]} at ${selectedSlot.startTime}.`
-                  : `END Gahunda yawe yemejwe neza kuri ${fullName} kuri ${selectedSlot.date.toISOString().split('T')[0]} saa ${selectedSlot.startTime}.`;
-          } catch (error) {
-              console.error('Error booking appointment:', error);
-              response = language === 'English'
-                  ? 'END Error booking appointment. Please try again later.'
-                  : 'END Twagize ikibazo mu kwemeza gahunda. Mugerageze ubutaha.';
-          }
-      }
+// Function to convert 12-hour time format to 24-hour format
+const convertTo24Hour = (time12h) => {
+  const [time, modifier] = time12h.split(' ');
+  let [hours, minutes] = time.split(':');
+  
+  if (hours === '12') {
+    hours = '00';
   }
 
-  // Respond back to the user
+  if (modifier === 'PM') {
+    hours = parseInt(hours, 10) + 12;
+  }
+
+  return `${hours}:${minutes}:00`;
+};
+
+// Define the USSD Endpoint
+app.get('/', (req, res) => {
+  res.send('hello from api!');
+});
+
+app.post('/ussd', (req, res) => {
+  const { sessionId, serviceCode, phoneNumber, text } = req.body;
+
+  // Split the input text into a list
+  const userResponse = text.split('*');
+
+  // Determine USSD flow based on user response
+  let response = '';
+  let language = '';  // to store the language selection
+
+  if (text === '') {
+    // Language selection screen
+    response = 'CON Select language / Hitamo ururimi:\n';
+    response += '1. English\n';
+    response += '2. Kinyarwanda';
+  } else if (userResponse[0] === '1' || userResponse[0] === '2') {
+    // Set the language and ask the user what to do next
+    language = userResponse[0] === '1' ? 'English' : 'Kinyarwanda';
+
+    // Continue with main menu in the selected language
+    if (userResponse.length === 1) {
+      if (language === 'English') {
+        response = 'CON Welcome to Local Government Appointment Booking\n';
+        response += '1. Book an appointment\n';
+        response += '2. Exit';
+      } else {
+        response = 'CON Murakaza neza muri Serivisi y\'Ibyo Gahunda\n';
+        response += '1. Guhitamo gahunda\n';
+        response += '2. Gusohoka';
+      }
+    } else if (userResponse[1] === '1') {
+      switch (userResponse.length) {
+        case 2:
+          // Ask for citizen's full name
+          response = language === 'English' ? 'CON Enter your full name:' : 'CON Injiza amazina yawe yose:';
+          break;
+        case 3:
+          // Ask for preferred date of appointment
+          response = language === 'English'
+            ? `CON Hi ${userResponse[2]}, please enter your preferred date (e.g., 2024-10-15):`
+            : `CON Muraho ${userResponse[2]}, injiza itariki wifuza (nko 2024-10-15):`;
+          break;
+        case 4:
+          // Ask for preferred time
+          response = language === 'English'
+            ? 'CON Enter preferred time (e.g., 10:00 AM):'
+            : 'CON Injiza isaha wifuza (nko 10:00 AM):';
+          break;
+        case 5:
+          // Ask for reason for appointment
+          response = language === 'English'
+            ? 'CON Enter reason for the appointment:'
+            : 'CON Injiza impamvu ya gahunda:';
+          break;
+        case 6:
+          // Convert the time to 24-hour format
+          const appointmentTime = convertTo24Hour(userResponse[4]);
+
+          // Save appointment details to MySQL
+          const appointmentData = {
+            phone_number: phoneNumber,
+            full_name: userResponse[2],
+            date: userResponse[3],
+            time: appointmentTime,
+            reason: userResponse[5],
+          };
+
+          // Insert the appointment data into MySQL
+          const query = 'INSERT INTO appointments (phone_number, full_name, date, time, reason) VALUES (?, ?, ?, ?, ?)';
+          db.query(query, Object.values(appointmentData), (err, result) => {
+            if (err) {
+              console.error(err);
+              response = language === 'English'
+                ? 'END Sorry, there was an error booking your appointment. Please try again later.'
+                : 'END Twagize ikibazo mu kwemeza gahunda yawe. Mugerageze ubutaha.';
+              res.send(response);
+              return;
+            }
+
+            // Send SMS notification
+            const smsMessage = language === 'English'
+              ? `Thank you ${userResponse[2]}! Your appointment is booked for ${userResponse[3]} at ${userResponse[4]}.`
+              : `Murakoze ${userResponse[2]}! Gahunda yawe yemejwe kuri ${userResponse[3]} saa ${userResponse[4]}.`;
+
+            sms.send({
+              to: phoneNumber,
+              message: smsMessage,
+            })
+            .then((res) => {
+              console.log('SMS sent successfully:', res);
+            })
+            .catch((err) => {
+              console.error('Failed to send SMS:', err);
+            });
+
+            response = language === 'English'
+              ? `END Thank you ${userResponse[2]}! Your appointment is booked for ${userResponse[3]} at ${userResponse[4]}.`
+              : `END Murakoze ${userResponse[2]}! Gahunda yawe yemejwe kuri ${userResponse[3]} saa ${userResponse[4]}.`;
+            res.send(response);
+          });
+          return;
+        default:
+          response = language === 'English' ? 'END Invalid input. Please try again.' : 'END Gusubiza ntabwo bikwiye. Mugerageze nanone.';
+          break;
+      }
+    } else {
+      // If user selects option 2 or enters any other response
+      response = language === 'English' ? 'END Thank you for using our service. Goodbye!' : 'END Murakoze gukoresha serivisi yacu. Murabeho!';
+    }
+  } else {
+    // Invalid selection
+    response = 'END Invalid option. Please select a valid language option.';
+  }
+
+  // Send response back to the user
   res.send(response);
 });
 
-
-
 // Start the server
 app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+  console.log(`Server is running on port ${PORT}`);
 });
