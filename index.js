@@ -3,7 +3,7 @@ const bodyParser = require('body-parser');
 const mysql = require('mysql2');
 const session = require('express-session');
 const MySQLStore = require('express-mysql-session')(session);
-const sendSMS = require('./sms/sendSMS'); // Assuming sendSMS is a separate module for sending SMS
+// const sendSMS = require('./sms/sendSMS'); // Assuming sendSMS is a separate module for sending SMS
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -144,14 +144,14 @@ app.post('/ussd', (req, res) => {
               return res.send(response);
             }
 
-            // Send confirmation SMS
-            const message = language === 'English'
-              ? `Thank you ${req.session.fullName}! Your appointment is booked. Reason: ${req.session.reason}`
-              : `Murakoze ${req.session.fullName}! Gahunda yawe yemejwe. Impamvu: ${req.session.reason}`;
+            // // Send confirmation SMS
+            // const message = language === 'English'
+            //   ? `Thank you ${req.session.fullName}! Your appointment is booked. Reason: ${req.session.reason}`
+            //   : `Murakoze ${req.session.fullName}! Gahunda yawe yemejwe. Impamvu: ${req.session.reason}`;
 
-            sendSMS(phoneNumber, message)
-              .then(result => console.log('SMS sent:', result))
-              .catch(err => console.error('SMS sending error:', err));
+            // sendSMS(phoneNumber, message)
+            //   .then(result => console.log('SMS sent:', result))
+            //   .catch(err => console.error('SMS sending error:', err));
 
             response = language === 'English'
               ? `END Thank you ${req.session.fullName}! Your appointment is booked. Reason: ${req.session.reason}`
