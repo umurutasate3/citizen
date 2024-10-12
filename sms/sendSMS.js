@@ -7,17 +7,17 @@ const africastalking = AfricasTalking({
     username: 'sandbox'
 });
 
-module.exports = async function sendSMS(to,message) {
-    
-    // TODO: Send message
-try {
-  const result=await africastalking.SMS.send({
-    to: to, 
-    message: message,
-    from: ''
-  });
-  console.log(result);
-} catch(ex) {
-  console.error(ex);
-}
-};
+module.exports = async function sendSMS(to, message) {
+    try {
+      const result = await africastalking.SMS.send({
+        to: [to], 
+        message: message,
+        from: ''
+      });
+      console.log(result);
+      return result;
+    } catch (ex) {
+      console.error(ex);
+      throw ex;
+    }
+  };

@@ -3,41 +3,38 @@ const bodyParser = require('body-parser');
 const mysql = require('mysql2');
 const session = require('express-session');
 const MySQLStore = require('express-mysql-session')(session);
-const sendSMS = require('./sms/sendSMS')
+const sendSMS = require('./sms/sendSMS'); // Assuming sendSMS is a separate module for sending SMS
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-
 
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
 // Create a MySQL session store
 const sessionStore = new MySQLStore({
-  host: 'bwbusqyou6y36nq07nen-mysql.services.clever-cloud.com', // Your MySQL host
-  port: 3306,           // MySQL server port
-  user: 'ui5erqq1nmgauixl', // Your MySQL username
-  password: 'am2w1jaNS2dIJMPwRZ0h', // Your MySQL password
-  database: 'bwbusqyou6y36nq07nen' // Your MySQL database
+  host: 'bwbusqyou6y36nq07nen-mysql.services.clever-cloud.com',
+  port: 3306,
+  user: 'ui5erqq1nmgauixl',
+  password: 'am2w1jaNS2dIJMPwRZ0h',
+  database: 'bwbusqyou6y36nq07nen'
 });
 
 // Initialize the session middleware with MySQLStore
 app.use(session({
-  secret: 'yourSecret',   // Secret to sign session cookies
-  resave: false,          // Prevents unnecessary session saving
-  saveUninitialized: false, // Don't save unmodified sessions
-  store: sessionStore,    // Use the MySQL store for session storage
-  cookie: { 
-      maxAge: 60000 * 60  // Set cookie expiration (e.g., 1 hour)
-  }
+  secret: 'yourSecret',
+  resave: false,
+  saveUninitialized: false,
+  store: sessionStore,
+  cookie: { maxAge: 60000 * 60 }  // Session expires in 1 hour
 }));
 
 // Create MySQL connection
 const db = mysql.createConnection({
-  host: 'bwbusqyou6y36nq07nen-mysql.services.clever-cloud.com', // Your MySQL host
-  user: 'ui5erqq1nmgauixl', // Your MySQL username
-  password: 'am2w1jaNS2dIJMPwRZ0h', // Your MySQL password
-  database: 'bwbusqyou6y36nq07nen' // Your MySQL database
+  host: 'bwbusqyou6y36nq07nen-mysql.services.clever-cloud.com',
+  user: 'ui5erqq1nmgauixl',
+  password: 'am2w1jaNS2dIJMPwRZ0h',
+  database: 'bwbusqyou6y36nq07nen'
 });
 
 // Connect to MySQL
@@ -48,7 +45,6 @@ db.connect((err) => {
   }
   console.log('Connected to MySQL database.');
 });
-
 
 // Define the USSD Endpoint
 app.post('/ussd', (req, res) => {
@@ -96,6 +92,8 @@ app.post('/ussd', (req, res) => {
         case 5:
           // Fetch available slots from the database
           req.session.reason = userResponse[4]; // Save the user's reason
+
+          // Perform async query to fetch available slots
           db.query('SELECT * FROM slots WHERE date >= CURDATE() AND availability = 1', (err, rows) => {
             if (err) {
               console.error(err);
@@ -114,11 +112,10 @@ app.post('/ussd', (req, res) => {
             });
             response += language === 'English' ? 'Please select a slot by entering the number:\n' : 'Injiza umubare w\'amasaha ushyira mu bikorwa:\n';
 
-            // Store the slots for future reference
-            req.session.slots = rows; // Save the available slots in the session
-            return res.send(response);
+            req.session.slots = rows;  // Save the slots in the session
+            return res.send(response);  // Send response after the query completes
           });
-          return;
+          return;  // Exit case until the query finishes
         case 6:
           // Selecting a slot
           const selectedSlotIndex = parseInt(userResponse[5]) - 1; // Convert to index
@@ -133,9 +130,9 @@ app.post('/ussd', (req, res) => {
           // Insert the appointment data into MySQL
           const appointmentData = {
             username: req.session.fullName,
-            village: req.session.village, // Use village from session
+            village: req.session.village,
             phoneNumber,
-            reason: req.session.reason, // Use reason from session
+            reason: req.session.reason,
             slotId: selectedSlot.id
           };
 
@@ -152,7 +149,9 @@ app.post('/ussd', (req, res) => {
               ? `Thank you ${req.session.fullName}! Your appointment is booked. Reason: ${req.session.reason}`
               : `Murakoze ${req.session.fullName}! Gahunda yawe yemejwe. Impamvu: ${req.session.reason}`;
 
-            sendSMS(phoneNumber,message)
+            sendSMS(phoneNumber, message)
+              .then(result => console.log('SMS sent:', result))
+              .catch(err => console.error('SMS sending error:', err));
 
             response = language === 'English'
               ? `END Thank you ${req.session.fullName}! Your appointment is booked. Reason: ${req.session.reason}`
@@ -177,8 +176,6 @@ app.post('/ussd', (req, res) => {
   // Send response back to the user
   res.send(response);
 });
-
-
 
 // Start the server
 app.listen(PORT, () => {
