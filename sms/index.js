@@ -3,7 +3,7 @@ const smsServer = require('./smsServer');
 
 // TODO: Call sendSMS function
 
-//sendSMS();
+sendSMS();
 
 // TODO: Call start sms server
 
